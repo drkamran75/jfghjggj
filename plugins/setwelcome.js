@@ -2,7 +2,7 @@
  * Set Welcome - Customize welcome message
  */
 
-const db = require('../../database');
+const db = require('../database');
 
 module.exports = {
   name: 'setwelcome',
