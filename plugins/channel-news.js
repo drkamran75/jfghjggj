@@ -2,7 +2,7 @@
  * Newsletter Command - Get newsletter information from WhatsApp channel link
  */
 
-const config = require('../../config');
+const config = require('../config');
 
 /**
  * Extract invite code from WhatsApp channel link
