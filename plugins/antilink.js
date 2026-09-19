@@ -1,124 +1,63 @@
-const cleanId = (id) => id ? id.split('@')[0].split(':')[0] : '';
+const config = require('../config');
 
-async function checkAdminStatus(conn, chatId, senderId) {
+// --- HELPER FUNCTIONS (Normalize ID Logic for LID Fix) ---
+const normalizeId = (id) => {
+    if (!id) return '';
+    // Ye ID se @lid, @s.whatsapp.net aur extra codes hata kar sirf numbers nikalta hai
+    return id.replace(/:[0-9]+/g, '').replace(/@(lid|s\.whatsapp\.net|c\.us|g\.us)/g, '').replace(/[^\d]/g, '');
+};
+
+async function isUserAdmin(conn, chatId, userId) {
     try {
         const metadata = await conn.groupMetadata(chatId);
         const participants = metadata.participants || [];
-
-        const botId = cleanId(conn.user?.id || '');
-        const botLid = cleanId(conn.user?.lid || '');
-        const sender = cleanId(senderId);
-
-        let isBotAdmin = false;
-        let isSenderAdmin = false;
-
+        const nUserId = normalizeId(userId); // Sender ki ID ko saaf kiya
+        
         for (let p of participants) {
-            if (p.admin === "admin" || p.admin === "superadmin") {
-                const pId = cleanId(p.id);
-                const pLid = cleanId(p.lid);
-                const pPhone = p.phoneNumber ? cleanId(p.phoneNumber) : '';
-
-                if (pId === botId || pLid === botLid || pPhone === botId) {
-                    isBotAdmin = true;
-                }
-
-                if (pId === sender || pLid === sender || pPhone === sender) {
-                    isSenderAdmin = true;
+            // Har participant ki ID, LID aur Phone Number ko check karein
+            const pIds = [p.id, p.lid, p.phoneNumber, p.jid].filter(Boolean);
+            for (let pid of pIds) {
+                if (normalizeId(pid) === nUserId) {
+                    return p.admin === "admin" || p.admin === "superadmin";
                 }
             }
         }
-
-        return { isBotAdmin, isSenderAdmin };
-    } catch (e) {
-        return { isBotAdmin: false, isSenderAdmin: false };
-    }
+        return false;
+    } catch (err) { return false; }
 }
 
-// Antilink activation state globally store karne ke liye
-global.antilinkSettings = global.antilinkSettings || {};
-global.antilinkRegistered = global.antilinkRegistered || false;
-
-// AUTOMATIC LINK DETECTOR (Isi file ke andar listener register kar diya)
-function registerAntilinkListener(conn) {
-    if (global.antilinkRegistered) return; // Dubara register hone se rokne ke liye
-    global.antilinkRegistered = true;
-
-    conn.ev.on('messages.upsert', async (chatUpdate) => {
-        try {
-            const msg = chatUpdate.messages[0];
-            if (!msg.message || msg.key.fromMe) return;
-
-            const from = msg.key.remoteJid;
-            if (!from.endsWith('@g.us')) return; // Sirf groups ke liye
-
-            // Agar is group mein antilink ON hai
-            if (global.antilinkSettings[from] === true) {
-                const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-                
-                // Link check regex (WhatsApp link ya koi bhi web link)
-                if (text.includes('chat.whatsapp.com') || text.includes('http://') || text.includes('https://')) {
-                    const senderId = msg.key.participant || msg.key.remoteJid;
-                    
-                    const { isBotAdmin, isSenderAdmin } = await checkAdminStatus(conn, from, senderId);
-
-                    // Agar link bhejne wala admin NAHIN hai, toh usko remove karo
-                    if (!isSenderAdmin && isBotAdmin) {
-                        // 1. Pehle message delete karo
-                        await conn.sendMessage(from, { delete: msg.key });
-                        
-                        // 2. Member ko kick (remove) karo
-                        await conn.groupParticipantsUpdate(from, [senderId], "remove");
-                        
-                        // 3. Inform karo group mein
-                        await conn.sendMessage(from, { text: `🚨 *Antilink Action:* @${senderId.split('@')[0]} ko group link bhejne par remove kar diya gaya hai.`, mentions: [senderId] });
-                    }
-                }
-            }
-        } catch (error) {
-            console.error("Antilink Listener Error:", error);
-        }
-    });
-}
-
+// --- MAIN COMMAND: ON/OFF ---
 module.exports = {
-    name: "antilink",
-    aliases: ["antilinks"],
-    category: "group",
-    description: "Turn on/off antilink protection and auto-remove members",
+    name: "antilink2",
+    category: "admin",
+    description: "Anti-link toggle with LID fix",
 
     async execute(context) {
-        const { conn, mek, m, reply, from, args, isBotOwner } = context;
-        const msg = mek || m;
+        const { socket, conn, reply, from, args, sender, isGroup, isBotOwner, m } = context;
+        const client = socket || conn;
 
-        if (!from.endsWith("@g.us")) {
-            return reply("❌ Ye command sirf group ke liye hai.");
+        if (!isGroup) return reply("❌ Ye command sirf groups ke liye hai.");
+        
+        // Admin Recognition Fix: normalizeId logic use ho raha hai
+        const senderId = sender || m.sender;
+        const senderIsAdmin = await isUserAdmin(client, from, senderId);
+        
+        if (!senderIsAdmin && !isBotOwner) {
+            return reply("🚫 *Only group admins can use this command!*");
         }
 
-        // Listener ko initialize karein jab command pehli baar run ho
-        registerAntilinkListener(conn);
+        if (!args[0]) return reply("Usage: `.antilink on` or `.antilink off`.");
 
-        const senderId = msg.key.participant || msg.key.remoteJid;
-        const { isBotAdmin, isSenderAdmin } = await checkAdminStatus(conn, from, senderId);
-
-        // Permissions Check
-        if (!isSenderAdmin && !isBotOwner) {
-            return reply("❌ Sirf group admins hi Antilink settings badal sakte hain.");
-        }
-
-        if (!isBotAdmin) {
-            return reply("⚠️ Mujhe admin banao pehle, tabhi main links delete aur members ko remove kar paunga.");
-        }
-
-        const action = args[0] ? args[0].toLowerCase() : '';
-
-        if (action === "on") {
-            global.antilinkSettings[from] = true;
-            return reply("✅ *Antilink ON ho gaya hai!* Ab jo bhi member link bhejega, use automatic *REMOVE* kar diya jayega.");
-        } else if (action === "off") {
-            global.antilinkSettings[from] = false;
-            return reply("✅ *Antilink OFF* kar diya gaya hai.");
+        const mode = args[0].toLowerCase();
+        if (mode === 'on') {
+            config.ANTI_LINK = 'true';
+            return reply("✅ *Anti-link Protection ON ho gayi hai.*");
+        } else if (mode === 'off') {
+            config.ANTI_LINK = 'false';
+            return reply("❌ *Anti-link Protection OFF ho gayi hai.*");
         } else {
-            return reply("❌ Galat tarika.\n\n*Usey:* \n.antilink on\n.antilink off");
+            return reply("❌ Galat option! `on` ya `off` use karein.");
         }
     }
 };
+          
