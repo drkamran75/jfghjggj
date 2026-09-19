@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 // Path ko thoda safe banate hain, agar folder nahi hai to create ho jaye
-const dataDir = path.join(__dirname, "../../database");
+const dataDir = path.join(__dirname, "../database");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
