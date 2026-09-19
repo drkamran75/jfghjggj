@@ -3,7 +3,7 @@
  * Enable/disable anti-tag and set action (delete/kick)
  */
 
-const database = require('../../database');
+const database = require('../database');
 
 module.exports = {
   name: 'antitag',
