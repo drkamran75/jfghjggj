@@ -2,7 +2,7 @@
  * Anti-Group Mention Command - Toggle antigroupmention protection with delete/kick options
  */
 
-const database = require('../../database');
+const database = require('../database');
 
 module.exports = {
   name: 'antigroupmention',
