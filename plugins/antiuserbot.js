@@ -8,7 +8,7 @@
  * Detected bots are immediately removed from the group.
  */
 
-const database = require('../../database');
+const database = require('../database');
 
 module.exports = {
   name       : 'antiuserbot',
