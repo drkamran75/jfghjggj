@@ -16,74 +16,37 @@ class PluginLoader {
         let totalFailed = 0;
         
         try {
-            const categories = fs.readdirSync(pluginsDir);
+            const items = fs.readdirSync(pluginsDir);
+            const defaultCategory = 'general';
+            this.categories.set(defaultCategory, []);
 
-            categories.forEach(category => {
+            items.forEach(item => {
                 try {
-                    const categoryPath = path.join(pluginsDir, category);
-                    
-                    if (!fs.statSync(categoryPath).isDirectory()) return;
-                    
-                    const pluginFiles = fs.readdirSync(categoryPath)
-                        .filter(file => file.endsWith('.js') && file !== 'index.js');
+                    const itemPath = path.join(pluginsDir, item);
+                    const stat = fs.statSync(itemPath);
 
-                    this.categories.set(category, []);
+                    // Agar direct .js file hai plugins folder ke andar
+                    if (stat.isFile() && item.endsWith('.js') && item !== 'index.js' && item !== 'pluginLoader.js') {
+                        this.loadPluginFile(itemPath, defaultCategory, item, () => totalLoaded++, () => totalFailed++);
+                    } 
+                    // Agar folder (category) hai
+                    else if (stat.isDirectory()) {
+                        const category = item;
+                        const categoryPath = itemPath;
+                        const pluginFiles = fs.readdirSync(categoryPath)
+                            .filter(file => file.endsWith('.js') && file !== 'index.js');
 
-                    pluginFiles.forEach(pluginFile => {
-                        try {
-                            const pluginPath = path.join(categoryPath, pluginFile);
-                            
-                            delete require.cache[require.resolve(pluginPath)];
-                            const plugin = require(pluginPath);
-                            
-                            if (plugin.name && plugin.execute) {
-                                this.commands.set(plugin.name, {
-                                    ...plugin,
-                                    category: category,
-                                    file: pluginFile
-                                });
-                                
-                                this.categories.get(category).push(plugin.name);
-                                
-                                if (plugin.aliases && Array.isArray(plugin.aliases)) {
-                                    plugin.aliases.forEach(alias => {
-                                        if (alias && typeof alias === 'string') {
-                                            this.commands.set(alias, {
-                                                ...plugin,
-                                                category: category,
-                                                file: pluginFile,
-                                                isAlias: true
-                                            });
-                                        }
-                                    });
-                                }
-                                
-                                totalLoaded++;
-                                console.log(`✅ Loaded: ${category}/${plugin.name}`);
-                            } else {
-                                totalFailed++;
-                                const errorDetails = {
-                                    file: `${category}/${pluginFile}`,
-                                    reason: 'Missing name or execute function',
-                                    hasName: !!plugin.name,
-                                    hasExecute: typeof plugin.execute === 'function'
-                                };
-                                this.loadErrors.push(errorDetails);
-                                console.error(`❌ Invalid plugin: ${category}/${pluginFile} - Missing: ${!plugin.name ? 'name' : ''} ${typeof plugin.execute !== 'function' ? 'execute' : ''}`);
-                            }
-                        } catch (error) {
-                            totalFailed++;
-                            const errorDetails = {
-                                file: `${category}/${pluginFile}`,
-                                reason: error.message,
-                                stack: error.stack?.split('\n')[1]?.trim() || 'No stack'
-                            };
-                            this.loadErrors.push(errorDetails);
-                            console.error(`❌ Error loading ${category}/${pluginFile}: ${error.message}`);
+                        if (!this.categories.has(category)) {
+                            this.categories.set(category, []);
                         }
-                    });
-                } catch (categoryError) {
-                    console.error(`❌ Error processing category ${category}:`, categoryError.message);
+
+                        pluginFiles.forEach(pluginFile => {
+                            const pluginPath = path.join(categoryPath, pluginFile);
+                            this.loadPluginFile(pluginPath, category, pluginFile, () => totalLoaded++, () => totalFailed++);
+                        });
+                    }
+                } catch (err) {
+                    console.error(`❌ Error processing item ${item}:`, err.message);
                 }
             });
             
@@ -98,12 +61,67 @@ class PluginLoader {
         }
     }
 
+    loadPluginFile(pluginPath, category, pluginFile, onSuccess, onFailure) {
+        try {
+            delete require.cache[require.resolve(pluginPath)];
+            const plugin = require(pluginPath);
+            
+            if (plugin.name && plugin.execute) {
+                this.commands.set(plugin.name, {
+                    ...plugin,
+                    category: category,
+                    file: pluginFile
+                });
+                
+                if (!this.categories.has(category)) {
+                    this.categories.set(category, []);
+                }
+                this.categories.get(category).push(plugin.name);
+                
+                if (plugin.aliases && Array.isArray(plugin.aliases)) {
+                    plugin.aliases.forEach(alias => {
+                        if (alias && typeof alias === 'string') {
+                            this.commands.set(alias, {
+                                ...plugin,
+                                category: category,
+                                file: pluginFile,
+                                isAlias: true
+                            });
+                        }
+                    });
+                }
+                
+                onSuccess();
+                console.log(`✅ Loaded: ${category}/${plugin.name}`);
+            } else {
+                onFailure();
+                const errorDetails = {
+                    file: `${category}/${pluginFile}`,
+                    reason: 'Missing name or execute function',
+                    hasName: !!plugin.name,
+                    hasExecute: typeof plugin.execute === 'function'
+                };
+                this.loadErrors.push(errorDetails);
+                console.error(`❌ Invalid plugin: ${category}/${pluginFile}`);
+            }
+        } catch (error) {
+            onFailure();
+            const errorDetails = {
+                file: `${category}/${pluginFile}`,
+                reason: error.message,
+                stack: error.stack?.split('\n')[1]?.trim() || 'No stack'
+            };
+            this.loadErrors.push(errorDetails);
+            console.error(`❌ Error loading ${category}/${pluginFile}: ${error.message}`);
+        }
+    }
+
     reloadPlugin(pluginName) {
         try {
             const cmd = this.commands.get(pluginName);
             if (!cmd) return { success: false, error: 'Plugin not found' };
             
-            const pluginPath = path.join(__dirname, cmd.category, cmd.file);
+            const pluginPath = path.join(__dirname, cmd.category === 'general' ? '' : cmd.category, cmd.file);
             delete require.cache[require.resolve(pluginPath)];
             const plugin = require(pluginPath);
             
@@ -175,11 +193,7 @@ class PluginLoader {
             
             reply: async (message, options = {}) => {
                 try {
-                    if (!socket || !from) {
-                        console.error('Reply error: socket or from is missing');
-                        return null;
-                    }
-                    
+                    if (!socket || !from) return null;
                     if (typeof message === 'object' && message.image) {
                         return await socket.sendMessage(from, message, { quoted: ai, ...options });
                     }
@@ -197,7 +211,6 @@ class PluginLoader {
                         }
                     }, { quoted: ai, ...options });
                 } catch (error) {
-                    console.error('Reply error:', error.message);
                     return null;
                 }
             },
@@ -209,7 +222,6 @@ class PluginLoader {
                         react: { text: emoji, key: msg.key } 
                     });
                 } catch (error) {
-                    console.error('React error:', error.message);
                     return null;
                 }
             },
@@ -219,7 +231,6 @@ class PluginLoader {
                     if (!socket || !from) return null;
                     return await socket.sendMessage(from, content, { quoted: msg, ...options });
                 } catch (error) {
-                    console.error('SendMessage error:', error.message);
                     return null;
                 }
             },
@@ -232,7 +243,6 @@ class PluginLoader {
                     for await (const chunk of stream) chunks.push(chunk);
                     return Buffer.concat(chunks);
                 } catch (error) {
-                    console.error(`Failed to download ${messageType}:`, error.message);
                     return null;
                 }
             },
@@ -257,7 +267,6 @@ class PluginLoader {
                     await fsExtra.writeFileSync(trueFileName, buffer);
                     return trueFileName;
                 } catch (error) {
-                    console.error('Download and save error:', error.message);
                     return null;
                 }
             },
@@ -274,7 +283,6 @@ class PluginLoader {
                     const { loadUserConfig } = require('../lib/userConfigService');
                     return await loadUserConfig((number || '').replace(/[^0-9]/g, ''));
                 } catch (error) {
-                    console.error('getUserConfig error:', error.message);
                     return {};
                 }
             },
@@ -284,7 +292,6 @@ class PluginLoader {
                     const { updateUserConfig } = require('../lib/userConfigService');
                     return await updateUserConfig((number || '').replace(/[^0-9]/g, ''), newConfig);
                 } catch (error) {
-                    console.error('updateUserConfig error:', error.message);
                     return null;
                 }
             },
