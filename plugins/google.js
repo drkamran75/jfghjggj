@@ -1,4 +1,4 @@
-const config = require("../../config");
+const config = require("../config");
 
 // Helper function for delay/sleep
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
