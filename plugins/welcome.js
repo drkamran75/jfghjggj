@@ -1,12 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 
-// Path ko thoda safe banate hain, agar folder nahi hai to create ho jaye
 const dataDir = path.join(__dirname, "../database");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
-const welcomePath = path.join(dataDir, "welcome.json");
+const welcomePath = path.join(dataDir, "lib/welcome.js");
 
 function loadWelcomeSettings() {
   try {
@@ -35,25 +34,27 @@ module.exports = {
   description: "Set welcome message for new members",
   
   async execute(context) {
-    // context se variables nikalna (Aapke bot ke hisaab se)
-    const { reply, react, from, args, q, isAdmins, isBotOwner } = context;
+    const { reply, react, from, args, q, isAdmins, isBotOwner, sender } = context;
     
     // Group check
     if (!from || !from.endsWith("@g.us")) {
       return reply("❌ This command only works in groups!");
     }
     
-    // Admin check
-    if (!isAdmins && !isBotOwner) {
+    // Owner number check (Aapka number jo config mein hai)
+    const ownerNumber = "923147168309"; // Apna WhatsApp number yahan ensure kar lein
+    const senderNumber = sender ? sender.split('@')[0] : "";
+    const isOwner = isBotOwner || senderNumber === ownerNumber;
+
+    // Agar na admin ho aur na hi owner, tab error dega
+    if (!isAdmins && !isOwner) {
       return reply("❌ Only group admins can use this command!");
     }
     
     try {
       const settings = loadWelcomeSettings();
-      // Command action (on/off/set/etc)
       const action = args[0] ? args[0].toLowerCase() : null;
       
-      // Default Menu agar koi action na ho
       if (!action || !["on", "off", "set", "status", "preview"].includes(action)) {
         const groupSettings = settings[from] || { enabled: false, message: "Welcome {user} to {group}!" };
         const currentStatus = groupSettings.enabled ? "✅ ON" : "❌ OFF";
@@ -70,7 +71,6 @@ module.exports = {
         return reply(menu);
       }
       
-      // Action: ON
       if (action === "on") {
         if (!settings[from]) settings[from] = { enabled: true, message: "Welcome {user} to {group}! 👋" };
         settings[from].enabled = true;
@@ -79,7 +79,6 @@ module.exports = {
         return reply("✅ Welcome message has been *Enabled*.");
       }
       
-      // Action: OFF
       if (action === "off") {
         if (!settings[from]) settings[from] = { enabled: false, message: "Welcome {user} to {group}! 👋" };
         settings[from].enabled = false;
@@ -88,7 +87,6 @@ module.exports = {
         return reply("❌ Welcome message has been *Disabled*.");
       }
       
-      // Action: SET
       if (action === "set") {
         const text = q || args.slice(1).join(" ");
         if (!text) return reply("❌ Please provide the welcome text!\nExample: `.welcome set Hello {user}!`");
@@ -102,7 +100,6 @@ module.exports = {
         return reply(`✅ *Success!* Welcome message updated.\n\n*Preview:* ${text.replace(/{user}/g, "@user").replace(/{group}/g, "Group Name")}`);
       }
       
-      // Action: PREVIEW / STATUS
       if (action === "preview" || action === "status") {
         const groupSettings = settings[from];
         if (!groupSettings || !groupSettings.message) {
@@ -122,5 +119,3 @@ module.exports = {
     }
   }
 };
-      
-
