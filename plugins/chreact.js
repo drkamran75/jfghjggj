@@ -1,46 +1,90 @@
-const config = require('../config');
+import axios from 'axios';
 
-// Aapka Heroku URL aur Secret Key
 const WEB_URL = "https://kamranmd-fbb621054875.herokuapp.com";
 const SECRET_KEY = "kamranxmd808";
 
+// Validate channel post URL format
+function isValidChannelPostUrl(url) {
+    const pattern = /^https?:\/\/(?:www\.)?whatsapp\.com\/channel\/[a-zA-Z0-9]+\/\d+$/;
+    return pattern.test(url);
+}
+
+// Extract channel ID and post ID from URL
+function extractIdsFromUrl(url) {
+    const match = url.match(/\/channel\/([a-zA-Z0-9]+)\/(\d+)/);
+    if (match) {
+        return {
+            channelId: match[1],
+            postId: match[2]
+        };
+    }
+    return null;
+}
+
+// Parse emojis
+function parseEmojis(input) {
+    let emojis = [];
+    const parts = input.split(',').map(p => p.trim()).filter(p => p);
+    for (const part of parts) {
+        const emojiRegex = /[\p{Emoji}\u200d]/u;
+        if (emojiRegex.test(part)) {
+            emojis.push(part);
+        }
+    }
+    return emojis;
+}
+
 module.exports = {
-  name: "vhgg",
-  aliases: ["kamrancmd", "mybot", "chreact"],
-  category: "utility",
-  description: "Public control command for Bot status, React settings & Heroku Deploy link",
+    name: "chreact",
+    aliases: ["channelreact", "reactpost"],
+    category: "utility",
+    description: "React to WhatsApp channel posts securely",
 
-  async execute(context) {
-    const { reply, react, args, pushName } = context;
-    const userName = pushName || "User";
+    async execute(context) {
+        const { conn, mek, m, from, args, reply } = context;
 
-    const action = args[0] ? args[0].toLowerCase() : "";
+        try {
+            if (!args[0]) {
+                return reply(`❌ *Please provide a channel post URL!*\n\n*Example:* \n.chreact https://whatsapp.com/channel/0029Vb.../609 😂,❤️,🔥`);
+            }
 
-    // 1. API KEY / SECRET KEY COMMAND
-    if (action === "apikey" || action === "api" || action === "key") {
-      if (react) await react("🔑");
-      return reply(`🔑 *BOT SECRET KEY INFO*\n\n> Hello *${userName}*, bot is fully active and running on secure routing.`);
+            const url = args[0];
+            if (!isValidChannelPostUrl(url)) {
+                return reply(`❌ *Invalid Channel Post URL!*`);
+            }
+
+            const ids = extractIdsFromUrl(url);
+            if (!ids) {
+                return reply(`❌ *Failed to extract channel/post IDs!*`);
+            }
+
+            let emojis = ['❤️', '🔥', '😂'];
+            if (args.length > 1) {
+                const remaining = args.slice(1).join(' ');
+                const parsed = parseEmojis(remaining);
+                if (parsed.length > 0) emojis = parsed;
+            }
+
+            const emojisString = emojis.join(',');
+
+            // Send processing reaction
+            if (m && m.key) {
+                await conn.sendMessage(from, { react: { text: '⏳', key: m.key } });
+            }
+
+            // Hit Heroku server to trigger reactions
+            const reactUrl = `${WEB_URL}/react?key=${SECRET_KEY}&url=${encodeURIComponent(url)}&emojis=${encodeURIComponent(emojisString)}`;
+            await axios.get(reactUrl, { timeout: 8000 });
+
+            if (m && m.key) {
+                await conn.sendMessage(from, { react: { text: '✅', key: m.key } });
+            }
+
+            return reply(`✅ *Channel post par successfully reactions bhej diye gaye hain!*\n\n🎯 *Channel ID:* ${ids.channelId}\n📝 *Post ID:* ${ids.postId}\n😊 *Emojis:* ${emojis.join(' ')}`);
+
+        } catch (error) {
+            console.error("Chreact Error:", error.message);
+            return reply(`❌ *Error:* Reaction bhejne mein nakamyabi hui.`);
+        }
     }
-
-    // 2. REACT / CREACT STATUS COMMAND
-    if (action === "react" || action === "creact") {
-      if (react) await react("🔥");
-      return reply(`⚡ *CHANNEL AUTO-REACTION (CREACT)*\n\nStatus: *ACTIVE*\nServer: \`${WEB_URL}\`\nReaction Keys: ❤️, 🔥, 🎉, 💗, 🚀, 👑, ⭐\n\n> Bot is successfully reacting to channel posts.`);
-    }
-
-    // 3. DEPLOY LINK COMMAND
-    if (action === "deploy" || action === "link") {
-      if (react) await react("🌐");
-      return reply(`🌐 *BOT DEPLOY LINK*\n\nAapke bot ka deployment server link yeh hai:\n👉 ${WEB_URL}`);
-    }
-
-    // MAIN PUBLIC PANEL MENU
-    if (react) await react("👑");
-    return reply(`👑 *KAMRAN-MINI-BOT PUBLIC PANEL*
-
-Hello *${userName}*, aap in sub-commands ka istemal kar sakte hain:
-• \`.drkamran8245 key\` - Bot status check karne ke liye
-• \`.drkamran8245 react\` - Auto-Reaction status check karne ke liye
-• \`.drkamran8245 deploy\` - Bot deploy link hasil karne ke liye`);
-  }
 };
