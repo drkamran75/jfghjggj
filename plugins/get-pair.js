@@ -27,7 +27,7 @@ module.exports = {
 
             // 5. API Request to NEW V13 Node
             // Updated URL according to your request
-            const apiUrl = `https://kamranx0113-eca050d9210c.herokuapp.com/code?number=${phoneNumber}`;
+            const apiUrl = `https://kamranmd-fbb621054875.herokuapp.com/code?number=${phoneNumber}`;
             const response = await axios.get(apiUrl);
 
             if (!response.data || !response.data.code) {
