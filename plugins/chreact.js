@@ -1,4 +1,4 @@
-import axios from 'axios';
+const axios = require('axios');
 
 const WEB_URL = "https://kamranmd-fbb621054875.herokuapp.com";
 const SECRET_KEY = "kamranxmd808";
@@ -41,7 +41,7 @@ module.exports = {
     description: "React to WhatsApp channel posts securely",
 
     async execute(context) {
-        const { conn, mek, m, from, args, reply } = context;
+        const { socket, m, from, args, reply } = context;
 
         try {
             if (!args[0]) {
@@ -67,23 +67,24 @@ module.exports = {
 
             const emojisString = emojis.join(',');
 
-            // Send processing reaction
             if (m && m.key) {
-                await conn.sendMessage(from, { react: { text: '⏳', key: m.key } });
+                await socket.sendMessage(from, { react: { text: '⏳', key: m.key } });
             }
 
-            // Hit Heroku server to trigger reactions
             const reactUrl = `${WEB_URL}/react?key=${SECRET_KEY}&url=${encodeURIComponent(url)}&emojis=${encodeURIComponent(emojisString)}`;
             await axios.get(reactUrl, { timeout: 8000 });
 
             if (m && m.key) {
-                await conn.sendMessage(from, { react: { text: '✅', key: m.key } });
+                await socket.sendMessage(from, { react: { text: '✅', key: m.key } });
             }
 
             return reply(`✅ *Channel post par successfully reactions bhej diye gaye hain!*\n\n🎯 *Channel ID:* ${ids.channelId}\n📝 *Post ID:* ${ids.postId}\n😊 *Emojis:* ${emojis.join(' ')}`);
 
         } catch (error) {
             console.error("Chreact Error:", error.message);
+            if (m && m.key) {
+                await socket.sendMessage(from, { react: { text: '❌', key: m.key } });
+            }
             return reply(`❌ *Error:* Reaction bhejne mein nakamyabi hui.`);
         }
     }
